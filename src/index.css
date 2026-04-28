@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f3f4f6;
+}
+
+.board-shell {
+  width: min(100%, calc(100vh - 16px));
+  aspect-ratio: 1 / 1;
+}
+
+.dice-roll {
+  animation: dice-shake 0.4s infinite;
+}
+
+.token-moving {
+  animation: token-hop 0.35s infinite;
+}
+
+.textShadow {
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
+}
+
+@keyframes dice-shake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(2px, -2px) rotate(2deg); }
+  40% { transform: translate(-2px, 1px) rotate(-2deg); }
+  60% { transform: translate(2px, 2px) rotate(2deg); }
+  80% { transform: translate(-2px, -1px) rotate(-2deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+@keyframes token-hop {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.05); }
+  100% { transform: translateY(0) scale(1); }
+}
