@@ -1,10 +1,49 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGame } from './hooks/useGame';
+import { useRoom } from './hooks/useRoom';
 import { BOARD_SPACES, getGridClasses } from './data/board';
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function App() {
+  const [roomInput, setRoomInput] = useState('');
+  const [playerName, setPlayerName] = useState('');
+
+  const {
+    roomId,
+    roomData,
+    gameState,
+    status,
+    error,
+    role,
+    playerId,
+    isHost,
+    createRoom,
+    joinRoom,
+    updateGameState,
+    sendAction,
+    subscribeToActions,
+    removeAction
+  } = useRoom();
+
+  const handleActionRequest = useCallback((type) => {
+    if (!roomId || playerId == null) return;
+    sendAction(type, playerId);
+  }, [roomId, playerId, sendAction]);
+
+  const handleStateChange = useCallback((nextState) => {
+    if (!isHost || !roomId) return;
+    updateGameState(nextState);
+  }, [isHost, roomId, updateGameState]);
+
+  const game = useGame({
+    readOnly: !isHost,
+    externalState: !isHost ? gameState : null,
+    onActionRequest: handleActionRequest,
+    onStateChange: handleStateChange,
+    disableBots: !isHost
+  });
+
   const {
     players,
     turn,
@@ -22,12 +61,21 @@ function App() {
     startMove,
     buyProperty,
     upgradeProperty,
-    endTurn
-  } = useGame();
+    endTurn,
+    syncPlayerNames
+  } = game;
 
-  const isMyTurn = currentPlayer.type === 'human';
+  const isMultiplayer = Boolean(roomId);
+  const isMyTurn = isMultiplayer
+    ? currentPlayer.type === 'human' && currentPlayer.id === playerId
+    : currentPlayer.type === 'human';
   const isRolling = phase === 'ROLLING';
   const isMoving = phase === 'MOVING';
+
+  const localPlayerName = useMemo(() => {
+    if (!roomData || playerId == null) return '';
+    return roomData.playersMeta?.[playerId]?.name || '';
+  }, [roomData, playerId]);
 
   const playerTextById = {
     0: 'text-blue-600',
@@ -70,7 +118,138 @@ function App() {
     });
   };
 
+  const handleIncomingAction = useCallback((actionId, action) => {
+    if (!isHost || !action) return;
+    if (!roomData?.playersMeta) return;
+    const { type, playerId: actionPlayerId, clientId } = action;
+    const expectedClientId = roomData?.playersMeta?.[actionPlayerId]?.clientId;
+    if (!expectedClientId || expectedClientId !== clientId) {
+      removeAction(actionId);
+      return;
+    }
+
+    if (currentPlayer.id !== actionPlayerId || currentPlayer.type !== 'human') {
+      removeAction(actionId);
+      return;
+    }
+
+    switch (type) {
+      case 'ROLL':
+        rollDice();
+        break;
+      case 'MOVE':
+        startMove();
+        break;
+      case 'BUY':
+        buyProperty();
+        break;
+      case 'UPGRADE':
+        upgradeProperty();
+        break;
+      case 'END_TURN':
+        endTurn();
+        break;
+      default:
+        break;
+    }
+
+    removeAction(actionId);
+  }, [
+    isHost,
+    roomData,
+    currentPlayer.id,
+    currentPlayer.type,
+    rollDice,
+    startMove,
+    buyProperty,
+    upgradeProperty,
+    endTurn,
+    removeAction
+  ]);
+
+  useEffect(() => {
+    if (!isHost || !roomId) return undefined;
+    return subscribeToActions(handleIncomingAction);
+  }, [isHost, roomId, subscribeToActions, handleIncomingAction]);
+
+  useEffect(() => {
+    if (!isHost || !roomData?.playersMeta) return;
+    const nameMap = roomData.playersMeta.reduce((acc, player) => {
+      if (player?.name) acc[player.id] = player.name;
+      return acc;
+    }, {});
+    syncPlayerNames(nameMap);
+  }, [isHost, roomData, syncPlayerNames]);
+
+  if (!roomId) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8">
+          <div className="text-center">
+            <div className="text-xs uppercase tracking-[0.3em] text-emerald-600 font-semibold">Multiplayer</div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 mt-2">Monopoly VN - Chơi 2 người</h1>
+            <p className="text-sm text-slate-500 mt-2">Tạo phòng trên Vercel + Firebase, mời 1 bạn vào bằng mã phòng.</p>
+          </div>
+
+          <div className="mt-6 space-y-4">
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-slate-500 font-semibold">Tên của bạn</label>
+              <input
+                value={playerName}
+                onChange={(event) => setPlayerName(event.target.value)}
+                placeholder="Ví dụ: Khoa"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => createRoom(playerName)}
+                disabled={status === 'creating' || status === 'joining'}
+                className="flex-1 rounded-xl bg-emerald-600 text-white font-semibold py-3 px-4 shadow hover:bg-emerald-500 disabled:opacity-60"
+              >
+                {status === 'creating' ? 'Đang tạo phòng...' : 'Tạo phòng (Bạn là chủ phòng)'}
+              </button>
+              <div className="flex-1">
+                <input
+                  value={roomInput}
+                  onChange={(event) => setRoomInput(event.target.value)}
+                  placeholder="Nhập mã phòng"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => joinRoom(roomInput, playerName)}
+                  disabled={status === 'creating' || status === 'joining'}
+                  className="mt-2 w-full rounded-xl bg-slate-800 text-white font-semibold py-3 px-4 shadow hover:bg-slate-700 disabled:opacity-60"
+                >
+                  {status === 'joining' ? 'Đang vào phòng...' : 'Vào phòng'}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{error}</div>
+            )}
+
+            <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+              Mẹo: Chủ phòng sẽ điều khiển 2 bot. Người thứ 2 chỉ cần nhập mã phòng và chơi đến lượt mình.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const recentLogs = logs.slice(0, 3);
+
+  const roleLabel = isHost ? 'Chủ phòng' : 'Khách';
+  const roomStatusLabel = roomData?.status === 'waiting'
+    ? 'Đang chờ người thứ 2 vào'
+    : roomData?.status === 'active'
+      ? 'Đang chơi'
+      : '';
 
   const phaseLabel = phase === 'ROLL'
     ? '🎲 Lượt Đổ'
@@ -328,7 +507,27 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen xl:h-screen flex flex-col xl:flex-row bg-slate-100 p-0 font-sans text-sm gap-0">
+    <div className="min-h-screen bg-slate-100">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white border-b border-slate-200 px-4 py-2 text-xs sm:text-sm">
+        <div className="flex items-center gap-2 text-slate-700 font-semibold">
+          <span>Phòng:</span>
+          <span className="font-mono bg-slate-100 px-2 py-1 rounded-md">{roomId}</span>
+        </div>
+        <div className="flex items-center gap-3 text-slate-500">
+          <span>Vai trò: {roleLabel}</span>
+          {localPlayerName && <span>Bạn: {localPlayerName}</span>}
+          {roomStatusLabel && <span className="text-emerald-600 font-semibold">{roomStatusLabel}</span>}
+        </div>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(roomId)}
+          className="rounded-lg border border-slate-200 px-3 py-1 text-slate-600 hover:text-slate-900 hover:border-slate-300"
+        >
+          Copy mã phòng
+        </button>
+      </div>
+
+      <div className="xl:h-[calc(100vh-48px)] flex flex-col xl:flex-row bg-slate-100 p-0 font-sans text-sm gap-0">
       
       {/* CỘT TRÁI: Dữ liệu Player */}
       <div className="w-full xl:w-[280px] shrink-0 flex flex-col h-auto xl:h-screen">
@@ -481,6 +680,7 @@ function App() {
 
       </div>
 
+      </div>
     </div>
   );
 }

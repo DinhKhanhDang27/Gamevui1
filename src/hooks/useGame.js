@@ -1,25 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { BOARD_SPACES } from '../data/board';
+import { getInitialGameState } from '../data/initialGameState';
 
-const INITIAL_PLAYERS = [
-  { id: 0, name: 'Người thật 1', type: 'human', money: 1500, position: 0, color: 'bg-blue-600', icon: '👤', inJail: 0 },
-  { id: 1, name: 'Người thật 2', type: 'human', money: 1500, position: 0, color: 'bg-red-500', icon: '👩', inJail: 0 },
-  { id: 2, name: 'Bot AI 1', type: 'bot', money: 1500, position: 0, color: 'bg-green-500', icon: '🤖', inJail: 0 },
-  { id: 3, name: 'Bot AI 2', type: 'bot', money: 1500, position: 0, color: 'bg-yellow-500', icon: '👾', inJail: 0 }
-];
+export function useGame(options = {}) {
+  const {
+    readOnly = false,
+    externalState = null,
+    onActionRequest,
+    onStateChange,
+    disableBots = false
+  } = options;
 
-export function useGame() {
-  const [players, setPlayers] = useState(INITIAL_PLAYERS);
-  const [turn, setTurn] = useState(0); // Player index
-  const [phase, setPhase] = useState('ROLL'); // 'ROLL' | 'ROLLING' | 'READY_TO_MOVE' | 'MOVING' | 'ACTION'
-  const [properties, setProperties] = useState({}); // { spaceId: { ownerId: 0, level: 0 } }
-  const [logs, setLogs] = useState(['🎮 Game bắt đầu!']);
-  const [latestLog, setLatestLog] = useState('🎮 Game bắt đầu!');
-  const [dice, setDice] = useState([1, 1]);
-  const [actionUsed, setActionUsed] = useState(false);
-  const [actionResolved, setActionResolved] = useState(false);
-  const [pendingSteps, setPendingSteps] = useState(0);
-  const [movingPlayerId, setMovingPlayerId] = useState(null);
+  const initialStateRef = useRef(getInitialGameState());
+  const initialState = initialStateRef.current;
+
+  const [players, setPlayers] = useState(initialState.players);
+  const [turn, setTurn] = useState(initialState.turn); // Player index
+  const [phase, setPhase] = useState(initialState.phase); // 'ROLL' | 'ROLLING' | 'READY_TO_MOVE' | 'MOVING' | 'ACTION'
+  const [properties, setProperties] = useState(initialState.properties); // { spaceId: { ownerId: 0, level: 0 } }
+  const [logs, setLogs] = useState(initialState.logs);
+  const [latestLog, setLatestLog] = useState(initialState.latestLog);
+  const [dice, setDice] = useState(initialState.dice);
+  const [actionUsed, setActionUsed] = useState(initialState.actionUsed);
+  const [actionResolved, setActionResolved] = useState(initialState.actionResolved);
+  const [pendingSteps, setPendingSteps] = useState(initialState.pendingSteps);
+  const [movingPlayerId, setMovingPlayerId] = useState(initialState.movingPlayerId);
   const rollTimerRef = useRef(null);
   const moveTimerRef = useRef(null);
 
@@ -28,9 +33,37 @@ export function useGame() {
     setLogs(prev => [msg, ...prev].slice(0, 50));
   }, []);
 
-  const currentPlayer = players[turn];
+  const safeExternalState = useMemo(() => externalState ?? getInitialGameState(), [externalState]);
+  const liveState = useMemo(() => ({
+    players,
+    turn,
+    phase,
+    properties,
+    logs,
+    latestLog,
+    dice,
+    actionUsed,
+    actionResolved,
+    pendingSteps,
+    movingPlayerId
+  }), [
+    players,
+    turn,
+    phase,
+    properties,
+    logs,
+    latestLog,
+    dice,
+    actionUsed,
+    actionResolved,
+    pendingSteps,
+    movingPlayerId
+  ]);
+  const gameState = readOnly ? safeExternalState : liveState;
+
+  const currentPlayer = gameState.players[gameState.turn];
   const currentSpace = BOARD_SPACES[currentPlayer.position];
-  const currentProperty = properties[currentSpace.id];
+  const currentProperty = gameState.properties[currentSpace.id];
 
   const getRentForSpace = useCallback((space, level = 0) => {
     if (!space || !space.rent) return 0;
@@ -52,9 +85,14 @@ export function useGame() {
   }, [players.length]);
 
   const endTurn = useCallback(() => {
+    if (readOnly) {
+      if (onActionRequest && gameState.phase === 'ACTION') onActionRequest('END_TURN');
+      return;
+    }
+
     addLog(`➡️ ${currentPlayer.name} kết thúc lượt.`);
     nextTurn();
-  }, [currentPlayer.name, addLog, nextTurn]);
+  }, [readOnly, onActionRequest, gameState.phase, currentPlayer.name, addLog, nextTurn]);
 
   const modifyMoney = useCallback((playerId, amount, reason) => {
     setPlayers(prev => prev.map(p => {
@@ -69,7 +107,21 @@ export function useGame() {
     }));
   }, []);
 
+  const syncPlayerNames = useCallback((nameMap) => {
+    if (readOnly || !nameMap) return;
+    setPlayers(prev => prev.map(player => {
+      const nextName = nameMap[player.id];
+      if (!nextName || nextName === player.name) return player;
+      return { ...player, name: nextName };
+    }));
+  }, [readOnly]);
+
   const rollDice = useCallback(() => {
+    if (readOnly) {
+      if (onActionRequest && gameState.phase === 'ROLL') onActionRequest('ROLL');
+      return;
+    }
+
     if (phase !== 'ROLL') return;
 
     setPhase('ROLLING');
@@ -98,9 +150,14 @@ export function useGame() {
         setPhase('READY_TO_MOVE');
       }
     }, 150);
-  }, [phase, turn, currentPlayer.id, currentPlayer.name, addLog]);
+  }, [readOnly, onActionRequest, gameState.phase, phase, turn, currentPlayer.id, currentPlayer.name, addLog]);
 
   const startMove = useCallback(() => {
+    if (readOnly) {
+      if (onActionRequest && gameState.phase === 'READY_TO_MOVE') onActionRequest('MOVE');
+      return;
+    }
+
     if (phase !== 'READY_TO_MOVE' || pendingSteps <= 0) return;
 
     const playerIndex = turn;
@@ -131,10 +188,20 @@ export function useGame() {
         setPhase('ACTION');
       }
     }, 420);
-  }, [phase, pendingSteps, turn, currentPlayer.id, addLog]);
+  }, [
+    readOnly,
+    onActionRequest,
+    gameState.phase,
+    phase,
+    pendingSteps,
+    turn,
+    currentPlayer.id,
+    addLog
+  ]);
 
   // Xử lý hiệu ứng của ô ngay khi Phase chuyển sang ACTION
   useEffect(() => {
+    if (readOnly) return;
     if (phase === 'ACTION' && !actionResolved) {
       const p = players[turn];
       const space = BOARD_SPACES[p.position];
@@ -170,9 +237,14 @@ export function useGame() {
 
       setActionResolved(true);
     }
-  }, [phase, actionResolved, turn, players, properties, addLog, modifyMoney, endTurn]); // Chỉ handle hiệu ứng cơ bản
+  }, [readOnly, phase, actionResolved, turn, players, properties, addLog, modifyMoney, endTurn]); // Chỉ handle hiệu ứng cơ bản
 
   const buyProperty = useCallback(() => {
+    if (readOnly) {
+      if (onActionRequest && gameState.phase === 'ACTION') onActionRequest('BUY');
+      return;
+    }
+
     if (phase !== 'ACTION') return;
     if (actionUsed) {
       addLog(`⛔ ${currentPlayer.name} đã dùng hành động trong lượt này.`);
@@ -191,9 +263,25 @@ export function useGame() {
          addLog(`❌ ${currentPlayer.name} không đủ tiền mua ${currentSpace.name}.`);
       }
     }
-  }, [phase, actionUsed, currentPlayer, currentSpace, currentProperty, modifyMoney, addLog]);
+  }, [
+    readOnly,
+    onActionRequest,
+    gameState.phase,
+    phase,
+    actionUsed,
+    currentPlayer,
+    currentSpace,
+    currentProperty,
+    modifyMoney,
+    addLog
+  ]);
 
   const upgradeProperty = useCallback(() => {
+    if (readOnly) {
+      if (onActionRequest && gameState.phase === 'ACTION') onActionRequest('UPGRADE');
+      return;
+    }
+
     if (phase !== 'ACTION') return;
     if (actionUsed) {
       addLog(`⛔ ${currentPlayer.name} đã dùng hành động trong lượt này.`);
@@ -214,10 +302,22 @@ export function useGame() {
         addLog(`⬆️ ${currentPlayer.name} đã nâng cấp ${currentSpace.name} lên cấp ${currentProperty.level + 1} ($${currentSpace.housePrice}).`);
       }
     }
-  }, [phase, actionUsed, currentPlayer, currentSpace, currentProperty, modifyMoney, addLog]);
+  }, [
+    readOnly,
+    onActionRequest,
+    gameState.phase,
+    phase,
+    actionUsed,
+    currentPlayer,
+    currentSpace,
+    currentProperty,
+    modifyMoney,
+    addLog
+  ]);
 
   // --- BOT LOGIC ---
   useEffect(() => {
+    if (readOnly || disableBots) return undefined;
     let timer1, timer2;
     if (currentPlayer.type === 'bot') {
       if (phase === 'ROLL') {
@@ -257,7 +357,20 @@ export function useGame() {
       clearTimeout(timer1);
       clearTimeout(timer2);
     };
-  }, [phase, turn, actionUsed, currentPlayer, properties, buyProperty, upgradeProperty, endTurn, rollDice, startMove]);
+  }, [
+    readOnly,
+    disableBots,
+    phase,
+    turn,
+    actionUsed,
+    currentPlayer,
+    properties,
+    buyProperty,
+    upgradeProperty,
+    endTurn,
+    rollDice,
+    startMove
+  ]);
 
   useEffect(() => {
     return () => {
@@ -266,24 +379,30 @@ export function useGame() {
     };
   }, []);
 
+  useEffect(() => {
+    if (readOnly || !onStateChange) return;
+    onStateChange(liveState);
+  }, [readOnly, onStateChange, liveState]);
+
   return {
-    players,
-    turn,
-    phase,
-    properties,
-    logs,
-    latestLog,
-    dice,
+    players: gameState.players,
+    turn: gameState.turn,
+    phase: gameState.phase,
+    properties: gameState.properties,
+    logs: gameState.logs,
+    latestLog: gameState.latestLog,
+    dice: gameState.dice,
     currentPlayer,
     currentSpace,
     currentProperty,
-    actionUsed,
-    pendingSteps,
-    movingPlayerId,
+    actionUsed: gameState.actionUsed,
+    pendingSteps: gameState.pendingSteps,
+    movingPlayerId: gameState.movingPlayerId,
     rollDice,
     startMove,
     buyProperty,
     upgradeProperty,
-    endTurn
+    endTurn,
+    syncPlayerNames
   };
 }
