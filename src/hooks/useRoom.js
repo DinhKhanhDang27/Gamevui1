@@ -27,6 +27,7 @@ const MAX_CREATE_ATTEMPTS = 5;
 
 const apiFetch = async (url, options = {}) => {
   const response = await fetch(url, {
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {})

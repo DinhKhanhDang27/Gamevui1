@@ -20,6 +20,8 @@ export default async function handler(req, res) {
     return;
   }
 
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+
   if (req.method === 'GET') {
     const redis = await getRedis();
     const total = await redis.lLen(actionsKey(roomId));
