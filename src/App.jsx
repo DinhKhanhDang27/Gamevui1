@@ -188,7 +188,7 @@ function App() {
           <div className="text-center">
             <div className="text-xs uppercase tracking-[0.3em] text-emerald-600 font-semibold">Multiplayer</div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 mt-2">Monopoly VN - Chơi 2 người</h1>
-            <p className="text-sm text-slate-500 mt-2">Tạo phòng trên Vercel + Firebase, mời 1 bạn vào bằng mã phòng.</p>
+            <p className="text-sm text-slate-500 mt-2">Tạo phòng trên Vercel KV, mời 1 bạn vào bằng mã phòng.</p>
           </div>
 
           <div className="mt-6 space-y-4">
