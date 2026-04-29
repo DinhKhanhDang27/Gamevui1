@@ -35,7 +35,11 @@ const apiFetch = async (url, options = {}) => {
   });
 
   const contentType = response.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await response.json() : null;
+  if (!contentType.includes('application/json')) {
+    throw new Error('Phan hoi khong hop le.');
+  }
+
+  const data = await response.json();
 
   if (!response.ok) {
     const message = data?.error || 'Request failed';
