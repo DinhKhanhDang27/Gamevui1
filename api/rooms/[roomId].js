@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { getRedis } from '../lib/redis.js';
 
 const ROOM_TTL_SECONDS = 60 * 60 * 6;
 
@@ -12,9 +12,17 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    const room = await kv.get(roomKey(roomId));
-    if (!room) {
+    const redis = await getRedis();
+    const roomRaw = await redis.get(roomKey(roomId));
+    if (!roomRaw) {
       res.status(404).json({ error: 'Room not found' });
+      return;
+    }
+    let room;
+    try {
+      room = JSON.parse(roomRaw);
+    } catch (err) {
+      res.status(500).json({ error: 'Room data corrupted' });
       return;
     }
     res.status(200).json(room);
@@ -22,9 +30,17 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PUT') {
-    const room = await kv.get(roomKey(roomId));
-    if (!room) {
+    const redis = await getRedis();
+    const roomRaw = await redis.get(roomKey(roomId));
+    if (!roomRaw) {
       res.status(404).json({ error: 'Room not found' });
+      return;
+    }
+    let room;
+    try {
+      room = JSON.parse(roomRaw);
+    } catch (err) {
+      res.status(500).json({ error: 'Room data corrupted' });
       return;
     }
 
@@ -38,7 +54,7 @@ export default async function handler(req, res) {
     if (game) nextRoom.game = game;
     if (status) nextRoom.status = status;
 
-    await kv.set(roomKey(roomId), nextRoom, { ex: ROOM_TTL_SECONDS });
+    await redis.set(roomKey(roomId), JSON.stringify(nextRoom), { EX: ROOM_TTL_SECONDS });
     res.status(200).json(nextRoom);
     return;
   }

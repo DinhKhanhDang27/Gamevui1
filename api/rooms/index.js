@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { getRedis } from '../lib/redis.js';
 
 const ROOM_TTL_SECONDS = 60 * 60 * 6;
 
@@ -29,9 +29,10 @@ export default async function handler(req, res) {
     updatedAt: now
   };
 
-  const setResult = await kv.set(roomKey(roomId), room, {
-    nx: true,
-    ex: ROOM_TTL_SECONDS
+  const redis = await getRedis();
+  const setResult = await redis.set(roomKey(roomId), JSON.stringify(room), {
+    NX: true,
+    EX: ROOM_TTL_SECONDS
   });
 
   if (setResult !== 'OK') {
@@ -39,8 +40,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  await kv.expire(actionsKey(roomId), ROOM_TTL_SECONDS);
-  await kv.expire(actionSeqKey(roomId), ROOM_TTL_SECONDS);
+  await redis.expire(actionsKey(roomId), ROOM_TTL_SECONDS);
+  await redis.expire(actionSeqKey(roomId), ROOM_TTL_SECONDS);
 
   res.status(201).json(room);
 }

@@ -1,4 +1,4 @@
-import { kv } from '@vercel/kv';
+import { getRedis } from '../../lib/redis.js';
 
 const ROOM_TTL_SECONDS = 60 * 60 * 6;
 
@@ -21,7 +21,8 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    const total = await kv.llen(actionsKey(roomId));
+    const redis = await getRedis();
+    const total = await redis.lLen(actionsKey(roomId));
     const startIndex = parseSince(req.query?.since ?? '0', total);
 
     if (startIndex >= total) {
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const rawActions = await kv.lrange(actionsKey(roomId), startIndex, total - 1);
+    const rawActions = await redis.lRange(actionsKey(roomId), startIndex, total - 1);
     const actions = rawActions
       .map(action => {
         if (typeof action === 'string') {
@@ -48,8 +49,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const room = await kv.get(roomKey(roomId));
-    if (!room) {
+    const redis = await getRedis();
+    const roomRaw = await redis.get(roomKey(roomId));
+    if (!roomRaw) {
       res.status(404).json({ error: 'Room not found' });
       return;
     }
@@ -60,7 +62,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const seq = await kv.incr(actionSeqKey(roomId));
+    const seq = await redis.incr(actionSeqKey(roomId));
     const action = {
       id: String(seq),
       type,
@@ -69,10 +71,10 @@ export default async function handler(req, res) {
       createdAt: new Date().toISOString()
     };
 
-    await kv.rpush(actionsKey(roomId), JSON.stringify(action));
-    await kv.expire(actionsKey(roomId), ROOM_TTL_SECONDS);
-    await kv.expire(actionSeqKey(roomId), ROOM_TTL_SECONDS);
-    await kv.expire(roomKey(roomId), ROOM_TTL_SECONDS);
+    await redis.rPush(actionsKey(roomId), JSON.stringify(action));
+    await redis.expire(actionsKey(roomId), ROOM_TTL_SECONDS);
+    await redis.expire(actionSeqKey(roomId), ROOM_TTL_SECONDS);
+    await redis.expire(roomKey(roomId), ROOM_TTL_SECONDS);
 
     res.status(201).json(action);
     return;
