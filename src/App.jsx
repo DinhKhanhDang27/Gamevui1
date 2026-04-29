@@ -193,8 +193,10 @@ function App() {
 
           <div className="mt-6 space-y-4">
             <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-500 font-semibold">Tên của bạn</label>
+              <label htmlFor="player-name" className="block text-xs uppercase tracking-wider text-slate-500 font-semibold">Tên của bạn</label>
               <input
+                id="player-name"
+                name="playerName"
                 value={playerName}
                 onChange={(event) => setPlayerName(event.target.value)}
                 placeholder="Ví dụ: Khoa"
@@ -212,7 +214,10 @@ function App() {
                 {status === 'creating' ? 'Đang tạo phòng...' : 'Tạo phòng (Bạn là chủ phòng)'}
               </button>
               <div className="flex-1">
+                <label htmlFor="room-code" className="sr-only">Mã phòng</label>
                 <input
+                  id="room-code"
+                  name="roomCode"
                   value={roomInput}
                   onChange={(event) => setRoomInput(event.target.value)}
                   placeholder="Nhập mã phòng"
